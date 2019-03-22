@@ -1,0 +1,168 @@
+---
+output: word_document
+---
+Analysis of working memory experiment using state-trace
+========================================================
+
+
+
+```{r,echo=FALSE}
+
+rm(list=ls())
+
+# Data frame containing raw data, must be called "data"
+load("behavdata.RData") 
+# In this example data 0.1% non-resposnes and 
+#                      2.0% of responses < .2s and >3s removed
+
+
+# MAP FACTORS TO STANDARD NAMES (!! CHANGE THIS FOR YOUR DESIGN !!)
+
+names(data)[names(data)=="Subject"] <- "s"  # subjects
+names(data)[names(data)=="Trace"]    <- "T"  # Trace
+names(data)[names(data)=="LagLag"]     <- "D"  # Dimension
+names(data)[names(data)=="Measure"] <- "S"  # State
+names(data)[names(data)=="Response"]      <- "C"  # Response score
+names(data)[names(data)=="ResponseTrue"]      <- "c"  # Response score 
+data <- data[,c("s","T","D","S","C", "c")]
+
+# CHECK DATA IS IN THE RIGHT FORM
+
+
+data[data$C<0.6,]$C = 0 #Change visibility to binary
+data[data$C>=0.6,]$C = 1 
+
+
+levs <- lapply(data[,c("s","T","D","S")],levels)
+not.fac <- unlist(lapply(levs,is.null))
+if (any(not.fac))
+  stop(paste("These columns are not factors:",
+             paste(names(not.fac)[not.fac],collapse=" ")))
+if (!(length(levs$S)==2))
+  stop("State factor must have 2 levels")
+
+cat(paste(length(levels(data$s)),"SUBJECTS with DESIGN LEVELS\n\n"))
+lapply(data[,c("T","D","S")],levels)
+# # COUNT NUMBER OF CORRECT RESPONSES (M) AND TRIALS (N)
+
+
+corrects = tapply(data$C,list(s=data$s,T=data$T,D=data$D,S=data$S),sum)
+Ntotal = table(s=data$s,T=data$T,D=data$D,S=data$S)
+correctsDF = as.data.frame.table(corrects)
+NtotalDF = as.data.frame.table(Ntotal)
+if(  all(correctsDF[,1:4] == NtotalDF[,1:4]) ) { # Check factors are line up ADD check also here for M
+  correctsDF$N = NtotalDF$Freq
+  colnames(correctsDF)[5] = "M"
+} else {
+stop("Could not merge data sets.")
+}
+
+
+
+# # GET ACCURACY MEAN AND STANDARD ERROR ASSUMING A UNIFORM PRIOR
+#NOTE, STANDARD ERROR, NOT STANDARD DEVIATION, hence the division by N
+#Standard error formula SE = SD/sqrt(N) where N is sample size
+#Equivilently SE = sqrt(Var/N) where Var is variance
+combinedDat = correctsDF[,1:4]
+combinedDat$phat = (correctsDF$M + 1) / (correctsDF$N + 2)
+combinedDat$stdErr = sqrt(combinedDat$phat * (1 - combinedDat$phat) / (correctsDF$N + 2))
+combinedDat$probitMean = qnorm(combinedDat$phat)
+combinedDat$probitStdErr = sqrt((combinedDat$stdErr/(dnorm(qnorm(combinedDat$phat))))^2 )
+
+
+cat("AVERAGE \nACCURACY\n\n\n\n")
+round(tapply(combinedDat$phat,combinedDat[,c("T","D","S")],mean),2)
+
+wm.av.p <- tapply(combinedDat$phat,combinedDat[,c("T","D","S")],mean)
+save(wm.av.p,file="wm_av_p.RData")
+
+combinedDat = combinedDat[combinedDat$D!="Lag8",]
+combinedDat$D <- factor(combinedDat$D)
+
+# # PERFORM STATE TRACE ANALYSIS
+
+ source('StateTraceLaplaceRefactor.R')
+# # CALCUALTE PRIOR AND POSTERIOR PROBABILITIES AND BAYES FACTORS
+
+
+# # PREFERED ANALYSIS: PROBIT SCALE ABOVE CHANCE
+
+ cat("CALCULATING BAYES FACTORS\n\n")
+ 
+  # # ORIGINAL CONSTRAINTS
+ 
+ #ppp.probit.lower0 <- getPPP(dat=combinedDat,
+                     #trace.increasing= TRUE,
+                     #dim.increasing=TRUE,
+                     #D.order = c("Lag2","Lag1","Lag3","Lag1","Lag4","Lag1","Lag2","Lag6","Lag3","Lag6", "Lag2", "Lag4", "Lag3", "Lag4"),
+                     #D.r = 7,
+                     #D.c = 2,
+                     #D.order2= c("Lag2","Lag3","Lag4","Lag6")) #Visibility Constraints
+                     #D.orderY = c("Lag2","Lag3","Lag4","Lag6"),
+                     #Dy.r = 1,
+                     #Dy.c = 4) #Visibility constraints
+ 
+ # # EMPIRICAL CONSTRAINTS
+  ppp.probit.lower0 <- getPPP(dat=combinedDat,
+                     trace.increasing= TRUE,
+                     dim.increasing=TRUE,
+                     D.order = c("Lag2","Lag1","Lag3","Lag1","Lag4","Lag1","Lag2","Lag6","Lag3","Lag6", "Lag2", "Lag4", "Lag3", "Lag4"), #Accuracy constraints
+                     Dx.r = 5,
+                     Dx.c = 2,
+                     D.orderY = c("Lag2","Lag3","Lag4","Lag6"),
+                     Dy.r = 1,
+                     Dy.c = 4) #Visibility constraints
+ bfs.p0 <- getBF(log10bf=FALSE, ppp.probit.lower0)
+ print(bfs.p0)
+ 
+ 
+ barplot(log(bfs.p0$BF2$d.nd,10), horiz = TRUE)
+ barplot(log(bfs.p0$BF2$m.nm,10), horiz = TRUE)
+library(ggplot2)
+dnd = data.frame(names(bfs.p0$BF2$d.nd), log(bfs.p0$BF2$d.nd,10))
+breaklevels = c(1/100, 1/20, 1/3, 0, 3, 20, 100)
+names(dnd) <- c("sub", "bf")
+postres_plot = ggplot(data=dnd, aes(x=sub, y =bf)) +
+  geom_bar(stat="identity", position="identity") +
+  #scale_colour_manual(name="Lag", labels=c("mean", "sds", "sig"), values = c("#e91e63", "#ff5722", "#ff9800")) +
+  scale_y_continuous(limits = c(-4, 2), breaks=seq(-4,2,1), minor_breaks = log(breaklevels, 10)) +
+  scale_x_discrete(breaks=NULL) +
+  xlab("Bayes factor (log10)") +
+  ylab("MI") +
+  ggtitle("Validity of Empirical Prior") +
+theme_bw()
+ggsave(
+  filename=paste("C:/R/StateTrace5belief.svg", sep=""),
+  plot=postres_plot,
+  width = 75,
+  height = 150,
+  units="mm",
+  dpi = 300
+)
+postres_plot
+
+mnm = data.frame(names(bfs.p0$BF2$m.nm), log(bfs.p0$BF2$m.nm,10))
+breaklevels = c(1/100, 1/20, 1/3, 0, 3, 20, 100)
+names(mnm) <- c("sub", "bf")
+postres_plot = ggplot(data=mnm, aes(x=sub, y =bf)) +
+  geom_bar(stat="identity", position="identity") +
+  #scale_colour_manual(name="Lag", labels=c("mean", "sds", "sig"), values = c("#e91e63", "#ff5722", "#ff9800")) +
+  scale_y_continuous(limits = c(-4, 2), breaks=seq(-4,2,1), minor_breaks = log(breaklevels, 10)) +
+  scale_x_discrete(breaks=NULL) +
+  xlab("Participant") +
+  ylab("Bayes factor (log10)") +
+  ggtitle("Evidence for Monotonicity (Empirical Prior)") +
+theme_bw()
+ggsave(
+  filename=paste("C:/R/StateTrace5gbf.svg", sep=""),
+  plot=postres_plot,
+  width = 75,
+  height = 150,
+  units="mm",
+  dpi = 300
+)
+postres_plot
+bfs <- bfs.p0 
+ppp <- ppp.probit.lower0
+
+

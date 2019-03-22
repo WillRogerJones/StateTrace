@@ -1,0 +1,39 @@
+CHANGELOG from the original StateTraceLaplace.R file
+
+CHANGE[1]
+Added drop=F when sub-setting trace constraints with dimension constraints. This prevents a case in which matrix(order(x),ncol=ndim)[,D.order] is a dimensionless vector if trace has only one dim
+
+CHANGE[2]
+nolap defaults to TRUE in all cases if trace has only one dim. Added a check to enforce the opposite. 
+
+CHANGE[3]
+trace vs non-trace is meaningless with only one trace dim. However, we can apply the same logic used with trace vs nontrace to our dimension constraints.
+The changes mean that (hopefully) this new measure (d.nd reflects the strength of our belief in the dimension constraints. This was achieved my removing nolap (undefined for one trace dimension) and setting prior/post nontrace == 1
+
+CHANGE[4] 
+
+Added the ability to set different constraints on each axis of the state-trace.
+
+This was achieved my defining two order vectors, D.orderX and D.orderY.
+
+It necessitates significant changes to the way the prior and post trace+dim are calculated. If the constraints on each axis are the different then we can no longer, for example, calculate the monotonic probability as the sum of the diagonal joint probabilities - because our matrix is no longer square.
+
+As a a result of this, the monotonic effect is now calculated as the sum of the diagonal of the joint order probabilities that corresponds to the intersection of the two constraints, that is the all the ordering which are the same between the two. The non-monotonic effect is calculated as the sum of all probabilities in the joint order probabilities that fit to the constraints, minus the sum of the diagonal of this union.
+
+NB: the labels orderX and orderY may be a little confusing. To be explicit, orderX indexes the jointOrderProb matrix rows(that correspond to accuracy in our experiment) and orderY indexes jointOrderProb matrix columns (that correspond to visibility in our experiment)
+
+CHANGE[5]
+Added the ability to specify multiple constraints for each axis. Constraints must be the same length Dx.c or Dy.c, and the number of such constraints must be specified as Dx.r or Dy.r.
+
+This is perhaps a little clumsy, but serves its purpose as any set of constraints can be specified as the intersection of pairs of constraints.
+
+For simplicity, it is also requires that dim.increasing is manually specified by the user. Currently, dim.increasing is assumed to be the same for each axis, but this should not be difficult to work around.
+
+Minor changes:
+Added a BF3, which is the product of all BF2.n.m. Useful as a yardstick of total evidence
+
+Added a BF4, which is the product of all BF2.d.nd. Useful as a yardstick of total belief in the constraints
+
+m.nl measure removed as it was causing problems with only one trace dimension
+
+d.nd is now a part of BF2
